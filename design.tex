@@ -1,15 +1,15 @@
 \section{Intended System Design}
 The initial system design is presented here as it was in our initial specification and design, we will highlight any differences or deviation from this in the actual system design section.
+
 \subsection{Expected Components}
 \subsubsection{Web Server}
 The main interface to the system will be supplied by a web server to allow easy and portable access by members of the MIF. The web facing part of the system will be comprised of several smaller packages all working together under NodeJS:
 
-\begin{enumerate}[label = {}, leftmargin=\widthof{Express |}+\labelsep]
+\begin{enumerate}[label = {}, leftmargin=\widthof{Express-Session |}+\labelsep]
 	\item[NodeJS |] A JavaScript runtime that allows execution of JS outside the context of a web browser. 
 	
 	\item[Express |] An open source web application framework for NodeJS, it is responsible for the high level web server logic and allows a high level interface to web traffic as it handles response codes, etc. itself.
-\end{enumerate}
-\begin{enumerate}[label = {}, leftmargin=\widthof{Express-Session |}+\labelsep]
+	
 	\item[Pug |] An open source high-performance template engine, it allows us to alter the contents of a web page just before serving it to the user, allowing for finer levels of customisation while keeping the code base manageable.
 			
 	\item[Express-Session |] An add-on for express that gives us easy control of user sessions. This allows us to keep track of user specific data, such as preferred precursors or recently searched compounds.
@@ -34,14 +34,13 @@ With the theme of future expansion the database will be hosted on a separate ser
 
 The database will not only store the information needed to run calculations, but will also store the solutions to commonly executed combinations so as to reduce the computational demand by allowing these solutions to be quickly retrieved rather than repeatedly calculated.
 
-\section{Algorithm Design}
-\subsection{Stoichiometry Calculator}
-The queried elements are transformed into a matrix with the following properties:
+\section{Actual System Design}
+\subsection{Computation}
+\subsubsection{Stoichiometry Calculator}
+The first stage of the stoichiometry calculator is to form the $\mathbf{A}$ and $\mathbf{B}$ matrix. As we are always searching for charge balanced compounds, and the result is purely a combination of the inputs with no external factors (e.g. The reaction taking place in air vs under vacuum) we can fix the $\mathbf{B}$ matrix. In this example the user has queried for \underline{Al}uminium, and \underline{O}xygen:
 
-\pagebreak
-\begin{center}
-	If the user selected Al and O with a limit of 5 atoms in the result:
-\end{center}
+\begin{minipage}{0.4\textwidth}
+\vspace{-1em}
 \begin{equation*}
 	\mathbf{A}=
 	\begin{blockarray}{*{2}{c} l}
@@ -79,271 +78,59 @@ The queried elements are transformed into a matrix with the following properties
 	0 
 	\end{bmatrix}
 \end{equation*}
-
-\vspace*{0.5em}
-This gives us the matrix form of the system of equations we must solve. However the charge imbalance in the matrix $\mathbf{A}$ is not constant for all elements, in this example $O$ can exists with $-2, -1, +1, +2$ as its charge, solving the equations above only allows for $Al_2O_3$. Therefore we must also consider all permutations of element charges, in this example $O$ has a total of 4 states, and $Al$ a total of 3 giving a total of 132 permutations. \\
-
-However, each permutation is quick to solve. Continuing the above example:
-
-\vspace{1.5em}
-
-\begin{minipage}{0.4\textwidth}
-	\label{LU_Decomp}
-	\begin{center}
-		Via LU decomposition:
-	\end{center}
-	\begin{equation*}
-	\begin{bmatrix}
-	1 & 1 \\
-	3 & -2
-	\end{bmatrix}
-	=
-	\begin{bmatrix}
-	1 & 0 \\
-	3 & 1
-	\end{bmatrix}
-	\times
-	\begin{bmatrix}
-	1 & 1\\
-	0 & -5
-	\end{bmatrix}
-	\end{equation*}
-	
-	\begin{equation*}
-	\begin{bmatrix}
-	1 & 0 \\
-	3 & 1
-	\end{bmatrix}
-	\times
-	\begin{bmatrix}
-	y_1 \\
-	y_2
-	\end{bmatrix}
-	=
-	\begin{bmatrix}
-	1 \\
-	0
-	\end{bmatrix}
-	\end{equation*}
-	
-	\begin{equation*}
-	\begin{bmatrix}
-	y_1 \\
-	y_2
-	\end{bmatrix}
-	=
-	\begin{bmatrix}
-	1 \\
-	-3
-	\end{bmatrix}
-	\end{equation*}
-	
-	\begin{equation*}
-	\begin{bmatrix}
-	1 & 1 \\
-	0 & -5
-	\end{bmatrix}
-	\times
-	\begin{bmatrix}
-	x_1 \\
-	x_2
-	\end{bmatrix}
-	=
-	\begin{bmatrix}
-	1 \\
-	-3
-	\end{bmatrix}
-	\end{equation*}
-	
-	\begin{equation*}
-	\begin{bmatrix}
-	x_1 \\
-	x_2
-	\end{bmatrix}
-	=
-	\begin{bmatrix}
-	0.4 \\
-	0.6
-	\end{bmatrix}
-	\end{equation*}
 \end{minipage}
 \hfill
 \begin{minipage}{0.6\textwidth}
-	While the example seems trivial when many elements are selected the system of equations grows rapidly and the merits of this method become more apparent. \\
+	\vspace{1.5em}
+	This gives us a matrix representation of the constraint equations. However, by our initial design we must consider all possible combinations of oxidation (charge) states in order to find all charge balanced compounds, in this example $O$ has a total of 4 states, and $Al$ a total of 3 giving a total of 132 permutations. While this is true computationally, some of the oxidation states are extremely uncommon and would not be desirable in a physical setting. \\
 	
-	This computation is run on all permutations of element charges, results are then collated, filtered, and then passed back to the web server where it can be presented to the user. \\
-	
-	Caching can be done at this phase as some searches will be significantly more common than others depending on the precursors or particular interests of the user in question. 
+	\vspace{1.5em}
+	With this in mind our implementation differs from the design at this point, if we consider all possible charges for\\
 \end{minipage}
+\vspace{-1.3em}
 
-\subsection{Precursor Calculator}
-The precursor calculator operates on almost the same principles as the stoichiometry calculator, however the means of constructing the matrices is different:
+every element the calculator produces technically feasible but practically impossible results. As this tool is designed to be used by chemists in a real world application we decided to limit the space by removing the rarer charges from the search. However, this data is dynamically loaded we can offer support for rarer charges to be included in the future, however at the current version this is not included. \\
 
-\begin{center}
-	If the user selected $Li_2S$, $Al_2S_3$, $Al_2O_3$, $LiAlO_2$, $Li_2O$ as precursors, and a desired end ratio of $Li_1 : Al_1 : S_1 : O_1$ we construct:
-\end{center}
+This space reduction leaves only one charge each for $Al$ and $O$, significantly reducing the search space from 132 variants of $\mathbf{A}$ to only one, while still returning all common compounds. \\ 
 
-\begin{minipage}{0.6\textwidth}
-	\begin{equation*}
-	\mathbf{A}=
-	\begin{blockarray}{*{5}{c} l}
-	\begin{block}{*{5}{>{$\footnotesize}c<{$}} l}
-	$Li_2S$ & $Al_2S_3$ & $Al_2O_3$ & $LiAlO_2$ & $Li_2O$ \\
-	\end{block}
-	\begin{block}{[*{5}{c}]>{$\footnotesize}l<{$}}
-	2 & 0 & 0 & 1 & 2 & $Li$ in compound\\
-	0 & 2 & 2 & 1 & 0 & $Al$ ' \\
-	1 & 3 & 0 & 0 & 0 & $S$ ' \\
-	0 & 0 & 3 & 2 & 1 & $O$ ' \\
-	\end{block}
-	\end{blockarray}
-	\end{equation*}	
-\end{minipage}
-\begin{minipage}{0.4\textwidth}
-	\begin{equation*}
-	\mathbf{B}=
-	\begin{blockarray}{*{1}{c} l}
-	\begin{block}{*{1}{>{$\footnotesize}c<{$}} l}
-	Ratio in output \\
-	\end{block}
-	\begin{block}{[*{1}{c}]>{$\footnotesize}l<{$}}
-	1 & Li \\
-	1 & Al \\
-	1 & S \\
-	1 & O \\
-	\end{block}
-	\end{blockarray}
-	\end{equation*}
-\end{minipage}
-
-\pagebreak
-
-We then find the null space of $\mathbf{A}$, firstly we apply Gauss-Jordan elimination to put it into reduced row echelon form: 
-
+After having formed the $\mathbf{A}$ matrices, we solve each for a single solution via LU decomposition. Which in it general form takes a matrix $\mathbf{X}$ and finds a lower ($\mathbf{L}$) and upper ($\mathbf{U}$) triangular matrix where 
 \begin{equation*}
-	\text{rref}(\mathbf{A})=
-	\begin{bmatrix}
-	1 & 0 & 0 & \frac{1}{2} & 1 \\
-	0 & 1 & 0 & -\frac{1}{6} & -\frac{1}{3} \\
-	0 & 0 & 1 & \frac{2}{3} & \frac{1}{3} \\
-	0 & 0 & 0 & 0 & 0 \\
-	\end{bmatrix}
+\mathbf{X} = \mathbf{L}\mathbf{U}
 \end{equation*}
 
-Taking the `free' section of the rref($\mathbf{A}$) and multiplying by $-1$:
-
+As these are triangular matrices we know the first row of $\mathbf{L}$ will take the form:
 \begin{equation*}
-	\begin{bmatrix}
-	-\frac{1}{2} & -1 \\
-	\frac{1}{6} & \frac{1}{3} \\
-	-\frac{2}{3} & -\frac{1}{3} \\
-	\end{bmatrix}
+\begin{bmatrix}
+x & 0 & 0 & \dots & 0
+\end{bmatrix}
 \end{equation*}
 
-Then adding identity to these rows so the height of our new matrix is the same as the width of the initial matrix $\mathbf{A}$:
-
+With each subsequent row adding another value, left to right, in place of the zeros. By forwards substitution we can obtain a solution in the form:\\
 \begin{equation*}
-	\begin{bmatrix}
-	-\frac{1}{2} & -1 \\
-	\frac{1}{6} & \frac{1}{3} \\
-	-\frac{2}{3} & -\frac{1}{3} \\
-	1 & 0 \\
-	0 & 1 \\
-	\end{bmatrix}
+\mathbf{L} \times 
+\begin{bmatrix}
+y_1 \\
+\vdots \\
+y_n
+\end{bmatrix}
+=
+\mathbf{B}
+\end{equation*}
+\vspace{0em}
+
+Calling this solution vector $\mathbf{\hat{y}}$ we can then solve $\mathbf{U}$ with back substitution for our actual solution $\mathbf{\hat{x}}$:
+\begin{equation*}
+\mathbf{U}\mathbf{\hat{x}} = \mathbf{\hat{y}}
 \end{equation*}
 
-The null space is then defined by scalar multiples of the columns of this matrix:
+\subsubsection{Precursor Calculator}
+Most of the major deviations from the design are within the precursor calculator. We believe this is due to our initial unfamiliarity with the subject field, therefore as our familiarity grew we changed our methods to be both faster, and more effective.
 
-\begin{equation*}
-	x \cdot
-	\begin{bmatrix}
-		-\frac{1}{2} \\
-		\frac{1}{6} \\
-		-\frac{2}{3} \\
-		1 \\
-		0 \\
-	\end{bmatrix}
-	+ y \cdot
-	\begin{bmatrix}
-		-1 \\
-		\frac{1}{3} \\
-		-\frac{1}{3} \\
-		0 \\
-		1 \\
-	\end{bmatrix}
-\end{equation*}
 
-\begin{center}
-	Where $x$ and $y$ are any real numbers.
-\end{center}
-
-Finally, via the same method demonstrated in \ref{LU_Decomp}, we find a solution $\mathbf{S}$ to our initial system of equations:
-
-\vspace{1.5em}
-\begin{minipage}{0.5\textwidth}
-	\begin{equation*}
-		\begin{bmatrix}
-			2 & 0 & 0 & 1 & 2 \\
-			0 & 2 & 2 & 1 & 0 \\
-			1 & 3 & 0 & 0 & 0 \\
-			0 & 0 & 3 & 2 & 1 \\
-		\end{bmatrix}
-		\times
-		\mathbf{S}
-		=
-		\begin{bmatrix}
-			1 \\
-			1 \\
-			1 \\
-			1 \\ 
-			1
-		\end{bmatrix}
-	\end{equation*}
-\end{minipage}
-\begin{minipage}{0.5\textwidth}
-	\begin{equation*}
-		\mathbf{S} =
-		\begin{bmatrix}
-			\frac{1}{2} \\[4pt]
-			\frac{1}{6} \\[4pt]
-			\frac{1}{3} \\[4pt]
-			0 \\
-			0
-		\end{bmatrix}
-	\end{equation*}
-\end{minipage}
-
-\vspace{0.5em} 
-
-Using this solution and the null space we can then find the space of all possible solutions to the system of equations:
-
-\begin{equation*}
-	\mathbf{S} + x \cdot
-	\begin{bmatrix}
-		-\frac{1}{2} \\
-		\frac{1}{6} \\
-		-\frac{2}{3} \\
-		1 \\
-		0 \\
-	\end{bmatrix}
-	+ y \cdot
-	\begin{bmatrix}
-		-1 \\
-		\frac{1}{3} \\
-		-\frac{1}{3} \\
-		0 \\
-		1 \\
-	\end{bmatrix}
-\end{equation*}
-
-Each solution we return is cached in the database as a possible point and can be presented to the user graphically via the web server.
-
-\pagebreak
-\section{Data Structures}
-
+\subsection{Data Structures}
 The main source of data for the system is the MongoDB database. We are using it to cache results allowing us to lighten the computational load of the system and deliver results faster when several users query the system at once.
 
-\subsection{Database Structure}
+\subsubsection{Database Structure}
 Database tables are generated on-the-fly as required, however general types of table do exist:
 
 \begin{enumerate}[label = {}, leftmargin=\widthof{CalcedPoints |}+\labelsep]
@@ -369,16 +156,16 @@ The exact structure of a CalcedPoints table depends heavily on the query that cr
 
 Each row of the table is a possible solution with the values in each column representing the proportion of that precursor relative to the others.
 
-\subsection{System Memory Management}
+\subsubsection{System Memory Management}
 On the computer which runs the main web server instance availability of RAM may become an issue, this would mainly be caused by multiple large queries executing simultaneously and such a situation is hard to avoid, however the memory footprint of the application is kept to a minimum by invoking the calculators as child processes instead of keeping them with the main NodeJS thread.\\
 
 This allows the memory heavy segment of the system to only take up space in RAM when it is required, and also only occupy the exact amount it requires during computation. If resources are not available for a query to use it will be queued until they are available on a first-come first-served basis. 
 
-\subsection{Computation}
+\subsubsection{Computation}
 The primary data structure in use during the computational stages are matrices, they are used to store the coefficients that represent the system of equations we have generated and will then solve. The software does occasionally cache small amounts of data for its own use, this is not stored in the database and is instead written and read as comma separated values in text files.
 
 
-\section{Interface Design}
+\subsection{Interface Design}
 The main user interface is provided via the web server, we have opted for a single page style design: the further down the page you go, the more in-depth the data. \\
 
 The top of the page displays a periodic table a user can use to enter elements they would like to pass to the stoichiometry calculator who's result will be displayed below the periodic table as it is the next level of detail.\\
@@ -387,7 +174,7 @@ Next the user can select a desired final ratio of elements and a set of precurso
 
 The user will then be able to explore possible solutions via the visualisation, selecting a point then a direction to move in, more possible solutions in their desired direction will be generated and displayed allowing them to find a good ratio for their own uses, be this quantities of precursor avalible or ease of measurement.
 
-\subsection{User Data}
+\subsubsection{User Data}
 A user will be able to login if they choose to, accounts are not required. Logging in will offer benefits such as previous searches being remembered and the ability to define preferred precursors which will be displayed separately to the generated precursors to allow easier selection of the precursors they will be using most often.\\
 
 Users accounts data will be protected by bCrypt2 and on disk encryption if possible. Also enforcing a HTTPS connection to the website should ensure password security, as the amount of user provided text is low there is little opportunity for SQL injection, most of the users interaction with the server is via click-able GUI elements which provide a minimal security risk.
