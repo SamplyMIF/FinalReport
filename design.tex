@@ -123,14 +123,63 @@ Calling this solution vector $\mathbf{\hat{y}}$ we can then solve $\mathbf{U}$ w
 \mathbf{U}\mathbf{\hat{x}} = \mathbf{\hat{y}}
 \end{equation*}
 
-\subsubsection{Precursor Calculator}
-Most of the major deviations from the design are within the precursor calculator. We believe this is due to our initial unfamiliarity with the subject field, therefore as our familiarity grew we changed our methods to be both faster, and more effective.
+This process is not especially computationally intensive, therefore we can solve all required iterations of $\mathbf{A}$ in a relatively short space of time. The result of each iteration is checked for validity (no negative quantities) and given a `score' based on the simplicity of the resulting compound (fewer atoms $\rightarrow$ better score, the actual complexity of the chemistry is ignored as we are computer scientists). After all iterations complete the results are written to a CSV file for the web server to import into the database.
 
+\subsubsection{Precursor Calculator}
+Most of the major deviations from the design are within the precursor calculator. We believe this is due to our initial unfamiliarity with the subject field, therefore as our familiarity grew we changed our methods to be both faster, and more effective. \\
+
+The precursor and stoichiometry methods are initially much the same, we must form an $\mathbf{A}$ and $\mathbf{B}$ matrix that properly encode the linear equations we are attempting to solve. In this case we are presuming the input precursor compounds are charged balanced, therefore we can focus solely on the ratios of elements in the desired ratio and the precursor compounds.
+
+\vspace{1.5em}
+\begin{minipage}{0.5\textwidth}
+	\vspace{-1em}
+	\begin{equation*}
+		\begin{blockarray}{*{5}{c} l}
+		\begin{block}{*{5}{>{$\footnotesize}c<{$}} l}
+		$Li_2S$ & $Al_2S_3$ & $Al_2O_3$ & $LiAlO_2$ & $Li_2O$ \\
+		\end{block}
+		\begin{block}{[*{5}{c}]>{$\footnotesize}l<{$}}
+		2 & 0 & 0 & 1 & 2 & $Li$ \\
+		0 & 2 & 2 & 1 & 0 & $Al$ \\
+		1 & 3 & 0 & 0 & 0 & $S$ \\
+		0 & 0 & 3 & 2 & 1 & $O$ \\
+		\end{block}
+		\end{blockarray}
+	\end{equation*}	
+\end{minipage}
+\hfill
+\begin{minipage}{0.45\textwidth}
+	The $\mathbf{A}$ matrix encodes the quantity of each element in the precursors, each column represents a precursor and each row a specific element. The $\mathbf{B}$ matrix is simply the desired output stoichiometry in a column vector, with the cosponsoring rows between the two matrices representing the same element. \\
+\end{minipage}
+
+We then solve the system of equations via LU decomposition as shown previously, however in this case we are not looking for a single solution as we have a potentially infinite solution space. Therefore we take additional steps to generate more solutions from our first, this is done by first finding the null space of the $\mathbf{A}$ matrix, then diving the null space matrix into a set of vectors which when multiplied by arbitrary real scalars and added to our initial solution produce a new point within the solution space. To continue our stoichiometry example of $Li$, $Al$, $S$, $O$, and taking the $\mathbf{A}$ matrix shown above:
+
+%% TODO: EXAMPLE 
 
 \subsection{Data Structures}
-The main source of data for the system is the MongoDB database. We are using it to cache results allowing us to lighten the computational load of the system and deliver results faster when several users query the system at once.
+The main source of data is the MongoDB database, and a pair of text files parsed by the calculators. We use the database to store all calculator results allowing us to lighten the computational load of the system and deliver results faster by first querying for stored data and only invoking the calculators if pre-existing results are not found.
 
-\subsubsection{Database Structure}
+The calculators share several classes which are used to store, process, and present data: \\
+
+\texttt{Element}, is used to store all relevant data about each element we are considering in a specific query. \\
+
+\texttt{Reagent}, is a fixed vector of elements representing a precursor in the query, it also contains a string field for the human readable chemical name. \\
+
+\texttt{Solution}, a dynamic vector of doubles, used to store the raw unprocessed output from the algorithm.\\
+
+Each of these classes then has a manager class which helps us access and use them in the wider context of the program: \\
+
+\texttt{SolutionDB}, this maps instances of \texttt{Solution} to unique and predictable strings which act as keys. This allows us to quickly check the uniqueness of a new solution before we accept it into the output list, this is necessary as the generation of new solutions from the initial solution and null space is not guaranteed to be unique. \\
+
+\texttt{ElementDB}, unordered map of element instances and strings which contain the chemical symbol of that particular element, ensures we only load each elements information once, and allows cross referencing between chemical symbols from the user input and in-memory data for the computation itself. \\
+
+\texttt{ReagentDB}, mostly used for processes outside the main bulk of the computation. \\
+
+\texttt{StateDB}, which has no corresponding child class, is a multimap (type of map which allows multiple values for one key) which stores the possible charge state(s) for each element. Keys take the form of the chemical symbol of the element, which is mapped to a set of integers representing possible charges.
+
+%% Work Marker
+
+\subsubsection{Database Structure} 
 Database tables are generated on-the-fly as required, however general types of table do exist:
 
 \begin{enumerate}[label = {}, leftmargin=\widthof{CalcedPoints |}+\labelsep]
