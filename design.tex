@@ -152,9 +152,20 @@ The precursor and stoichiometry methods are initially much the same, we must for
 	The $\mathbf{A}$ matrix encodes the quantity of each element in the precursors, each column represents a precursor and each row a specific element. The $\mathbf{B}$ matrix is simply the desired output stoichiometry in a column vector, with the cosponsoring rows between the two matrices representing the same element. \\
 \end{minipage}
 
-We then solve the system of equations via LU decomposition as shown previously, however in this case we are not looking for a single solution as we have a potentially infinite solution space. Therefore we take additional steps to generate more solutions from our first, this is done by first finding the null space of the $\mathbf{A}$ matrix, then diving the null space matrix into a set of vectors which when multiplied by arbitrary real scalars and added to our initial solution produce a new point within the solution space. To continue our stoichiometry example of $Li$, $Al$, $S$, $O$, and taking the $\mathbf{A}$ matrix shown above:
+We then solve the system of equations via LU decomposition as shown previously, however in this case we are not looking for a single solution as we have a potentially infinite solution space. Therefore we take additional steps to generate more solutions from our first, this is done by first finding the null space of the $\mathbf{A}$ matrix, then diving the null space matrix into a set of vectors which when multiplied by arbitrary real scalars and added to our initial solution produce a new point within the solution space. \\
+
+In earlier versions and in our initial design these arbitrary real numbers were generated systematically, then iterated over to produce all solutions. This system was very inefficient and contributed the bulk of the computation time. Whilst trying to optimise the speed of the computation we decided to drop this system in favour of a new dynamic system which will be described in detail in the realisation section. \\
+
+To continue our stoichiometry example of $Li$, $Al$, $S$, $O$, and taking the $\mathbf{A}$ matrix shown above:
 
 %% TODO: EXAMPLE 
+
+\subsection{Web Server}
+The web server is written in NodeJS using Express to provide robust routing, and PUG to provide dynamic HTML generation. Given the highly asynchronous nature of NodeJS and our design specifically, we believe it is best to explain this section diagrammatically: 
+
+\input{webserverdiagram}
+
+Here the italic text represents internal data (i.e. \textit{authenticated} checks if the user has logged in, and \textit{query} checks if the incoming request contains a query), and normal print represents an abstract piece of information. All boxes run asynchronously of each other, generally with callbacks to handle data transfer, however in some cases special functions are called to handle the async code (e.g. Calculators are called within a `Promise' block). 
 
 \subsection{Data Structures}
 The main source of data is the MongoDB database, and a pair of text files parsed by the calculators. We use the database to store all calculator results allowing us to lighten the computational load of the system and deliver results faster by first querying for stored data and only invoking the calculators if pre-existing results are not found.
@@ -177,53 +188,75 @@ Each of these classes then has a manager class which helps us access and use the
 
 \texttt{StateDB}, which has no corresponding child class, is a multimap (type of map which allows multiple values for one key) which stores the possible charge state(s) for each element. Keys take the form of the chemical symbol of the element, which is mapped to a set of integers representing possible charges.
 
-%% Work Marker
+\subsection{Database} 
+Collections in the Precursor and Stoichs database are generated on the fly when new calculator results arrive, their structure is not fixed but does follow a general pattern:
 
-\subsubsection{Database Structure} 
-Database tables are generated on-the-fly as required, however general types of table do exist:
+\begin{table}[H]
+\centering
+\begin{tabular}{|c|c|c|c|}
+	\hline
+	\multicolumn{4}{|c|}{\textless{}Input Elements\textgreater{}} \\ \hline
+	\textless{}Element 1\textgreater{} & $\dots$ & Mass & Score \\ \hline
+	\textless{}Ratio of E1\textgreater{} & $\dots$ & \textless{}Compound Mass\textgreater{} & \textless{}Compound Score\textgreater{}\\
+	$\vdots$ & $\vdots$ & $\vdots$ & $\vdots$ \\
+\end{tabular}
 
-\begin{enumerate}[label = {}, leftmargin=\widthof{CalcedPoints |}+\labelsep]
-	\item[UserData |] Usernames, Encrypted Passwords, and other user preference data.
-	
-	\item[ElementData |] Charge configurations, and other static element data needed for calculations.
-	
-	\item[CalcedPoints |] Generally a table per invocation of the precursor calculator, storing the results of our calculations so they can be easily referenced in future. 
-\end{enumerate}
-
-The exact structure of a CalcedPoints table depends heavily on the query that created it, however given a query its structure will always be predictable: 
-
-\begin{table}[h!]
-	\centering
-	\begin{tabular}{|c|c|c|}
-		\hline
-		\multicolumn{3}{|c|}{\textless{}Desired Ratio\textgreater{}} \\ \hline
-		\textless{}Precursor 1\textgreater{} & \textless{}Precursor 2\textgreater{} & $\dots$ \\ \hline
-		\textless{}Ratio of P1\textgreater{} & \textless{}Ratio of P2\textgreater{} & $\dots$ \\
-		$\vdots$ & $\vdots$ & $\ddots$ \\
-	\end{tabular}
+\caption{Stoichiometry Calculator}
 \end{table}
 
-Each row of the table is a possible solution with the values in each column representing the proportion of that precursor relative to the others.
+\begin{table}[H]
+	\centering
+	\begin{tabular}{|c|c|c|c|}
+		\hline
+		\multicolumn{4}{|c|}{\textless{}Desired Stoichiometry\textgreater{}} \\ \hline
+		\multicolumn{2}{|c|}{\textless{}Precursor 1\textgreater{}} & $\dots$ & Score \\ \hline
+		\textless{}Ratio\textgreater{} & \textless{}Mass\textgreater{} & $\dots$ & \textless{}Solution Score\textgreater{} \\
+		$\vdots$ & $\vdots$ & $\vdots$ & $\vdots$ \\
+	\end{tabular}
 
-\subsubsection{System Memory Management}
+\caption{Precursor Calculator}
+\end{table}
+
+This dynamic structuring is required as we don't know the exact precursors that will be involved until a query arrives, the alternative would be a column for every element, and every allowable precursor which would massively inflate the tables with millions of $0$ entries. \\
+
+We chose to use a NoSQL database system which stores collections (tables) as JSON data as the only component which interacts with it directly is written in JavaScript. Therefore any data we read or write is already in a format JS implicitly understands and can be immediately used with little processing. \\
+
+There is also an ElementData database which stores all of the information used by the calculators, although currently unused we decided to include it as the web server may find it useful in future iterations as it would allow us to display more information than Symbol and Z to the user, and it would also begin to allow the user to select which charge states they are interested in instead of the currently fixed version. 
+
+\subsection{System Memory Management}
 On the computer which runs the main web server instance availability of RAM may become an issue, this would mainly be caused by multiple large queries executing simultaneously and such a situation is hard to avoid, however the memory footprint of the application is kept to a minimum by invoking the calculators as child processes instead of keeping them with the main NodeJS thread.\\
 
-This allows the memory heavy segment of the system to only take up space in RAM when it is required, and also only occupy the exact amount it requires during computation. If resources are not available for a query to use it will be queued until they are available on a first-come first-served basis. 
-
-\subsubsection{Computation}
-The primary data structure in use during the computational stages are matrices, they are used to store the coefficients that represent the system of equations we have generated and will then solve. The software does occasionally cache small amounts of data for its own use, this is not stored in the database and is instead written and read as comma separated values in text files.
-
+This allows the memory heavy segment of the system to only take up space in RAM when it is required, and also only occupy the exact amount it requires during computation. If resources become scarce then the child processes will wait for the OS to assign them memory, in future setting the OS priority for jobs may be necessary to ensure resources are still available for the web server when a queue of jobs has formed.
 
 \subsection{Interface Design}
-The main user interface is provided via the web server, we have opted for a single page style design: the further down the page you go, the more in-depth the data. \\
+\subsubsection{Web Server}
+The user interface is provided via the web server, we have used a single page style design where going further down the page gives you more in-depth data. \\
 
-The top of the page displays a periodic table a user can use to enter elements they would like to pass to the stoichiometry calculator who's result will be displayed below the periodic table as it is the next level of detail.\\
+When a user first connects to the website they are asked to login with a simple username and password box. Account creation is not offered as the intended user base is small enough to have this done manually by the web admin, however automating this process would also be a simple task.  \\
 
-Next the user can select a desired final ratio of elements and a set of precursors they have avalible from the stoichiometry calculator, this will then trigger the precursor calculator who's results will be displayed graphically as either a 2d or 3d triangle/pyramid. This visualisation will be rendered using WebGL in order to allow us to have an interactive 3d environment. \\
+After successfully authenticating we present the user with a periodic table, an accompanying search bar, and a block of options. If the user selects elements on the periodic table they are auto-filled in the search bar and highlighted, the opposite is also true where if a user types elements into the search bar they are automatically selected on the periodic table. \\
 
-The user will then be able to explore possible solutions via the visualisation, selecting a point then a direction to move in, more possible solutions in their desired direction will be generated and displayed allowing them to find a good ratio for their own uses, be this quantities of precursor avalible or ease of measurement.
+The options presented allow the user to chose between displaying proportions, masses, or both in their results; filtering the number of samples displayed down from 1 to 100; and finally entering a desired mass of end product. \\
 
-\subsubsection{User Data}
-A user will be able to login if they choose to, accounts are not required. Logging in will offer benefits such as previous searches being remembered and the ability to define preferred precursors which will be displayed separately to the generated precursors to allow easier selection of the precursors they will be using most often.\\
+After pressing search the stoichiometry results will be displayed, and a new block of precursors will be shown. The list is pre-populated with common precursors used by chemists in the Material Innovation Factory, however there is a simple box to add more. \\
 
-Users accounts data will be protected by bCrypt2 and on disk encryption if possible. Also enforcing a HTTPS connection to the website should ensure password security, as the amount of user provided text is low there is little opportunity for SQL injection, most of the users interaction with the server is via click-able GUI elements which provide a minimal security risk.
+The user can then select a set of precursors, and then use the periodic table, search box, or stoichiometry results to generate precursor results. Our final design differs from the intended here as we decided to use a tabbed interface for different types of result as once the user has used the stoichiometry result they are likely not interested in it, so displaying it and making them scroll past it to get to the new precursor result was unintuitive. \\
+
+Finally the precursor results will display in their tab, if the user has selected exactly 3 precursors a diagram will also be generated to display the points in a visual manner. However due to other technical challenges with the project we could not implement higher dimension visualisation in time. \\
+
+All of the webpages shown to the user are dynamically generated by PUG, this allowed us to write simple HTML-like templates which are then dynamically rendered into actual html and sent to the user.
+
+\subsubsection{Calculators}
+The interaction with the calculators is entirely command line based. Both calculators are combined into a single executable file which is controlled by command line arguments, once the calculator is invoked it requires no additional input from the user. This design is required by the web server as while it can send data via std::in the design is greatly simplified by passing command line arguments and simply waiting for the subprocess to return. \\
+
+The available parameters are:
+\begin{enumerate}[label = {}, leftmargin=\widthof{precursors |}+\labelsep]
+	\item[help |] Displays a list of all possible parameters and their general function
+	\item[stoichs |] The input list of elements either as the desired final ratio, or to be turned into valid compounds
+	\item[precursors |] The precursors to be considered when trying to achieve the desired stoichiometry
+	\item[samples |] How many sample points should be generated in the solution space
+	\item[mode |] Toggle between Stoichiometry and Precursor calculations
+	\item[dmass |] The desired mass of final product (only relevant to precursor calculations)
+	\item[drange |] Maximum denominator to search for when calculating scores
+	\item[debug |] Debug flags toggle, additional text output and some safety features
+\end{enumerate}
